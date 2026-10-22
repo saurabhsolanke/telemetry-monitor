@@ -114,3 +114,40 @@ This executes `ng build` and opens the standalone desktop application pointing d
 - **Interactive High-Resolution Modal**: Maximize button on each waveform card to view an expanded dialog with full zoom and pan controls.
 - **Unit Conversions**: Real-time conversion across metric and imperial units (e.g. `mm/s`, `cm/s`, `m/s`, `mbar`, `bar`, `psi`, `°C`, `°F`, `K`).
 - **Data Export**: Export snapshot telemetry to **CSV** or **Excel (.xlsx)** via native OS save dialogs in Electron or direct browser download.
+
+---
+
+## 4. Architecture and Technical Decisions
+
+### 1. State Management with Angular Signals
+- **Decision**: Replaced complex external state libraries (NgRx) with Angular 22's native **Signals** (`signal()`, `computed()`, `effect()`).
+- **Rationale**: Signals provide fine-grained reactivity with zero boilerplate. Unit conversions and summary metrics (Min, Max, Mean, Delta %) calculate instantly on the client without redundant change detection cycles.
+
+### 2. Client-Side Unit Conversion
+- **Decision**: Implemented `UnitConverterService` entirely in the frontend using exact physical constants and linear/affine conversion formulas.
+- **Rationale**: Unit toggles (e.g., `cm/s` ↔ `m/s`, `mbar` ↔ `psi`, `°C` ↔ `°F`) execute synchronously with zero network overhead or latency, ensuring instantaneous UI feedback.
+
+### 3. Modular Apache ECharts
+- **Decision**: Imported modular ECharts components (`GaugeChart`, `LineChart`, `GridComponent`, `TooltipComponent`, `DataZoomComponent`, `CanvasRenderer`) via `ngx-echarts` and `echarts/core`.
+- **Rationale**: Keeps the production JavaScript bundle lightweight (~1.1 MB including XLSX) while delivering 60 FPS hardware-accelerated canvas rendering for high-frequency live telemetry streaming.
+
+### 4. Resilient Telemetry Streaming Service
+- **Decision**: Configured RxJS `timer(0, intervalMs).pipe(switchMap(...), catchError(...))` for 1.0 Hz polling.
+- **Rationale**: `switchMap` cancels stale in-flight requests if network jitter occurs. Latency and packet counters provide real-time connection diagnostics.
+
+### 5. Dual Export Strategy (Desktop & Browser)
+- **Decision**: `ExportService` detects `window.electronAPI`. If available, it invokes native OS save dialogs (`dialog.showSaveDialog`); otherwise, it triggers browser Blob downloads.
+- **Rationale**: Enables a single codebase to operate seamlessly both in standard web browsers and as a native desktop application.
+
+---
+
+## 5. Assumptions Made During Implementation
+
+1. **Telemetry Sampling Rate**: The embedded controller simulation server runs at **1.0 Hz (1000 ms)** with a rolling buffer of the last **100 samples** per channel.
+2. **Channel Thresholds**: Standard operational boundaries were established for industrial baseline parameters:
+   - **Velocity**: Normal: 160–200 cm/s; Warning: 140–160 or 200–220 cm/s; Critical: <140 or >220 cm/s.
+   - **Pressure**: Normal: 970–1050 mbar; Warning: 920–970 or 1050–1100 mbar; Critical: <920 or >1100 mbar.
+   - **Temperature**: Normal: 30–40 °C; Warning: 25–30 or 40–45 °C; Critical: <25 or >45 °C.
+3. **Environment Configuration**: API endpoints are managed via Angular environment files (`environment.ts` and `environment.development.ts`) defaulting to `http://localhost:3000/api/dashboard` for local development.
+4. **Network Resilience**: If the backend goes offline, the UI persists the last known buffer, updates connection status to `DISCONNECTED`, and displays an animated error banner while automatically retrying on the next poll cycle.
+
